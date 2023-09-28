@@ -94,7 +94,7 @@ class MedicationItemService:
             item = Item.objects.create(**data)
             return item
 
-        item = item = Item.objects.get(uuid=medicationItem_uuid)
+        item = Item.objects.get(uuid=medicationItem_uuid)
 
         # Handle Update of medication item
         item.save_history()
