@@ -1,5 +1,8 @@
+import django.db.models.base
+from medical.exceptions import CodeAlreadyExistsError
 from gettext import gettext as _
 from core.signals import register_service_signal
+# from medical.gql_mutations import check_if_code_already_exists, reset_item_or_service_before_update
 
 
 def set_item_or_service_deleted(item_service, item_or_service_element):
@@ -38,29 +41,57 @@ def clear_item_dict(item):
     return new_dict
 
 
-def reset_item_before_update(item):
-    item.code = None
-    item.name = None
-    item.type = None
-    item.price = None
-    item.care_type = None
-    item.patient_category = None
-    item.package = None
-    item.quantity = None
-    item.frequency = None
+def reset_item_or_service_before_update(item_service):
+    fields = [
+        "code",
+        "name",
+        "code",
+        "name",
+        "type",
+        "price",
+        "frequency",
+        "care_type",
+        "patient_category",
+        "category",
+        "level",    # service only
+        "category", # service only
+        "package",  # item only
+        "quantity", # item only
+    ]
+    for field in fields:
+        if hasattr(item_service, field):
+            setattr(item_service, field, None)
 
 
-def reset_service_before_update(service):
-    service.code = None
-    service.category = None
-    service.type = None
-    service.name = None
-    service.level = None
-    service.patient_category = None
-    service.price = None
-    service.frequency = None
-    service.maximum_amount = None
-    service.care_type = None
+def check_if_code_already_exists(
+        data: dict,
+        item_service_model: django.db.models.base.ModelBase
+):
+    if item_service_model.objects.all().filter(code=data['code'], validity_to__isnull=True).exists():
+        raise CodeAlreadyExistsError(_("Code already exists."))
+# def reset_item_before_update(item):
+#     item.code = None
+#     item.name = None
+#     item.type = None
+#     item.price = None
+#     item.care_type = None
+#     item.patient_category = None
+#     item.package = None
+#     item.quantity = None
+#     item.frequency = None
+
+
+# def reset_service_before_update(service):
+#     service.code = None
+#     service.category = None
+#     service.type = None
+#     service.name = None
+#     service.level = None
+#     service.patient_category = None
+#     service.price = None
+#     service.frequency = None
+#     service.maximum_amount = None
+#     service.care_type = None
 
 
 def check_unique_code_service(code):
@@ -77,67 +108,45 @@ def check_unique_code_item(code):
     return []
 
 
+def create_item_or_service(data, item_service_model):
+    item_service_uuid = data.pop('uuid') if 'uuid' in data else None
+    # update_or_create(uuid=service_uuid, ...)
+    # doesn't work because of explicit attempt to set null to uuid!
+    
+    # data["audit_user_id"] = user.id_for_audit
+    data["audit_user_id"] = 1
+    
+    incoming_code = data.get('code')
+    item_service = item_service_model.objects.filter(uuid=item_service_uuid).first()
+    current_code = item_service.code if item_service else None
+        
+    if current_code != incoming_code:
+        check_if_code_already_exists(data, item_service_model)
+         
+    if item_service_uuid:
+        reset_item_or_service_before_update(item_service)
+        [setattr(item_service, key, data[key]) for key in data]
+    else:
+        item_service = item_service_model.objects.create(**data)
+
+    item_service.save()
+    
+    return item_service
+
+
 class MedicationItemService:
     def __init__(self, user):
         self.user = user
 
     @register_service_signal('medication_item.create_or_update')
-    def create_or_update(self, data):
-
-        from .models import Item
-
-        data['audit_user_id'] = self.user.id_for_audit
-
-        medicationItem_uuid = data.pop('uuid', None)
-
-        if Item.objects.filter(uuid=medicationItem_uuid).count() == 0:
-            item = Item.objects.create(**data)
-            return item
-
-        item = Item.objects.get(uuid=medicationItem_uuid)
-
-        # Handle Update of medication item
-        item.save_history()
-        # reset the non required fields
-        # (each update is 'complete', necessary to be able to set 'null')
-        reset_item_before_update(item)
-
-        [setattr(item, key, data[key]) for key in data]
-
-        item.save()
-
-        return item
-
+    def create_or_update(self, data, model):
+        return create_item_or_service(data, model)
 
 class MedicationServiceService:
     def __init__(self, user):
         self.user = user
 
     @register_service_signal('medication_service.create_or_update')
-    def create_or_update(self, data):
+    def create_or_update(self, data, model):
 
-        from .models import Service
-
-        data['audit_user_id'] = self.user.id_for_audit
-
-        medicationService_uuid = data.pop('uuid', None)
-
-        if Service.objects.filter(uuid=medicationService_uuid).count() == 0:
-
-            service = Service.objects.create(**data)
-
-            return service
-
-        service = Service.objects.get(uuid=medicationService_uuid)
-
-        # Handle Update of medication item
-        service.save_history()
-        # reset the non requssired fields
-        # (each update is 'complete', necessary to be able to set 'null')
-        reset_service_before_update(service)
-
-        [setattr(service, key, data[key]) for key in data]
-
-        service.save()
-
-        return service
+        return create_item_or_service(data, model)
