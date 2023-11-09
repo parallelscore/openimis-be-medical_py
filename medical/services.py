@@ -111,11 +111,7 @@ def check_unique_code_item(code):
 def create_item_or_service(data, item_service_model):
     item_service_uuid = data.pop('uuid') if 'uuid' in data else None
     # update_or_create(uuid=service_uuid, ...)
-    # doesn't work because of explicit attempt to set null to uuid!
-    
-    # data["audit_user_id"] = user.id_for_audit
-    data["audit_user_id"] = 1
-    
+    # doesn't work because of explicit attempt to set null to uuid!    
     incoming_code = data.get('code')
     item_service = item_service_model.objects.filter(uuid=item_service_uuid).first()
     current_code = item_service.code if item_service else None
@@ -148,5 +144,4 @@ class MedicationServiceService:
 
     @register_service_signal('medication_service.create_or_update')
     def create_or_update(self, data, model):
-
         return create_item_or_service(data, model)
